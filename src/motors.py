@@ -1,5 +1,7 @@
-import pigpio
+import sys
 import time
+
+import pigpio
 
 # Pin definitions
 ENA = 18    # Hardware PWM for speed control
@@ -27,12 +29,22 @@ def motor_control(speed, direction):
         pi.write(IN2, 0)
         pi.set_PWM_dutycycle(ENA, 0)
 
-# Example usage
-motor_control(200, 'forward')   # ~78% speed forward (200/255)
-time.sleep(3)
-motor_control(128, 'reverse')   # 50% speed reverse
-time.sleep(3)
-motor_control(0, 'stop')        # Stop motor
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python motors.py <1|0>")
+        sys.exit(1)
 
-# Cleanup
-pi.stop()
+    direction_arg = sys.argv[1]
+
+    if direction_arg not in ["1", "0"]:
+        print("Direction must be '1' (forward) or '0' (backward)")
+        sys.exit(1)
+
+    direction = "forward" if direction_arg == "1" else "reverse"
+
+    motor_control(200, direction)
+    time.sleep(1)
+    motor_control(0, "stop")
+
+    # Cleanup
+    pi.stop()
