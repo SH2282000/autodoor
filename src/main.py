@@ -138,10 +138,10 @@ async def continuous_scan(addresses: list[str], name: str):
                 print(
                     f"Hello again! absence duration: {absence_duration:.2f}s, current time: {time.strftime('%H:%M:%S', time.localtime(current_time))} RSSI: {advertisement_data.rssi} dBm"
                 )
-                motor_control(200, "forward")  # ~78% speed forward (200/255)
-                time.sleep(4)
-                motor_control(200, "reverse")  # ~78% speed reverse (200/255)
-                time.sleep(4)
+                motor_control(255, "forward")
+                time.sleep(6)
+                motor_control(255, "reverse")
+                time.sleep(7)
 
                 motor_control(0, "stop")  # Stop motor
                 pi.stop()
