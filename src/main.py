@@ -166,7 +166,7 @@ async def continuous_scan(addresses: list[str], name: str):
 
 
 if __name__ == "__main__":
-    MAIN_DEVICE_ADRESS = "4D57E341-8AFC-E894-373D-E0FDF9275E1F"
+    MAIN_DEVICE_ADRESS = "C0:2C:5C:8D:37:D8"
     WATCH_DEVICE_ADRESS = "63A5FCD8-4F7D-A5DC-4461-FA7137452DCE"
     MAIN_DEVICE_NAME = "sPhone"
 

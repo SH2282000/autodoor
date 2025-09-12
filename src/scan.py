@@ -11,7 +11,6 @@ async def continuous_scan():
         """Handle discovered devices in real-time."""
         if not device.name:
             return
-
         print(
             f"Discovered target device: {device.name}, Address: {device.address}, RSSI: {advertisement_data.rssi} dBm"
         )
