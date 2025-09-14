@@ -103,7 +103,7 @@ class BluetoothDoorController:
         """Scan for the target Bluetooth device"""
         try:
             devices, adv = await BleakScanner.discover(
-                timeout=SCAN_INTERVAL, scanning_mode="passive", return_adv=True
+                timeout=SCAN_INTERVAL, return_adv=True
             )
             print(adv.rssi)
             for device in devices:
