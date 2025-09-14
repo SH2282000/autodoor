@@ -79,12 +79,6 @@ class BluetoothDoorController:
             print("Phase 1: Reverse stroke")
             self.motor_control(255, "reverse")
             await asyncio.sleep(5)
-
-            # Brief pause
-            print("Phase 2: Stopping")
-            self.motor_control(0, "stop")
-            await asyncio.sleep(0.5)
-
             # Return stroke
             print("Phase 3: Forward stroke")
             self.motor_control(255, "forward")
@@ -108,7 +102,7 @@ class BluetoothDoorController:
             for device_address, (device, adv_data) in scan_result.items():
                 if (
                     device_address.lower() == self.target_address
-                    and adv_data.rssi > -70
+                    and adv_data.rssi > -40
                 ):
                     print(f"📡 Device found with RSSI: {adv_data.rssi}")
                     return True
