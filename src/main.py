@@ -12,7 +12,7 @@ IN1 = 17  # Direction pin 1
 IN2 = 27  # Direction pin 2
 
 # Configuration
-PHONE_BT_ADDRESS = "XX:XX:XX:XX:XX:XX"  # Replace with your phone's BT address
+PHONE_BT_ADDRESS = "c0:2c:5c:8d:37:d8"  # Replace with your phone's BT address
 SCAN_INTERVAL = 2.0  # Seconds between scans
 DISCONNECT_THRESHOLD = 10.0  # Seconds to consider device "away"
 
@@ -76,8 +76,8 @@ class BluetoothDoorController:
 
         try:
             # Forward stroke
-            print("Phase 1: Forward stroke")
-            self.motor_control(255, "forward")
+            print("Phase 1: Reverse stroke")
+            self.motor_control(255, "reverse")
             await asyncio.sleep(5)
 
             # Brief pause
@@ -86,8 +86,8 @@ class BluetoothDoorController:
             await asyncio.sleep(0.5)
 
             # Return stroke
-            print("Phase 3: Reverse stroke")
-            self.motor_control(255, "reverse")
+            print("Phase 3: Forward stroke")
+            self.motor_control(255, "forward")
             await asyncio.sleep(6)
 
             # Final stop
@@ -102,9 +102,15 @@ class BluetoothDoorController:
     async def scan_for_device(self):
         """Scan for the target Bluetooth device"""
         try:
-            devices = await BleakScanner.discover(timeout=SCAN_INTERVAL)
+            devices, adv = await BleakScanner.discover(
+                timeout=SCAN_INTERVAL, scanning_mode="passive", return_adv=True
+            )
+            print(adv.rssi)
             for device in devices:
-                if device.address.lower() == self.target_address:
+                if (
+                    device.address.lower() == self.target_address
+                    and adv.rssi > -50
+                ):
                     return True
             return False
         except Exception as e:
