@@ -1,6 +1,7 @@
 import asyncio
 import signal
 import time
+from datetime import datetime, timedelta
 
 import pigpio
 from bleak import BleakScanner
@@ -10,168 +11,127 @@ ENA = 18  # Hardware PWM for speed control
 IN1 = 17  # Direction pin 1
 IN2 = 27  # Direction pin 2
 
+# Configuration
+PHONE_BT_ADDRESS = "4D57E341-8AFC-E894-373D-E0FDF9275E1F"  # Replace with your phone's BT address
+SCAN_INTERVAL = 2.0  # Seconds between scans
+DISCONNECT_THRESHOLD = 10.0  # Seconds to consider device "away"
+
 # Initialize pigpio
 pi = pigpio.pi()
 
+class BluetoothDoorController:
+    def __init__(self, target_address):
+        self.target_address = target_address.lower()
+        self.last_seen = None
+        self.was_connected = False
+        self.running = True
 
-def motor_control(speed, direction):
-    """
-    speed: 0-255 (pigpio uses 0-255 range)
-    direction: 'forward', 'reverse', or 'stop'
-    """
-    if direction == "forward":
-        pi.write(IN1, 1)  # GPIO 17 HIGH
-        pi.write(IN2, 0)  # GPIO 27 LOW
-        pi.set_PWM_dutycycle(ENA, speed)
-    elif direction == "reverse":
-        pi.write(IN1, 0)  # GPIO 17 LOW
-        pi.write(IN2, 1)  # GPIO 27 HIGH
-        pi.set_PWM_dutycycle(ENA, speed)
-    else:  # stop
-        pi.write(IN1, 0)
-        pi.write(IN2, 0)
-        pi.set_PWM_dutycycle(ENA, 0)
+    def motor_control(self, speed, direction):
+        """Control motor with speed (0-255) and direction"""
+        if direction == "forward":
+            pi.write(IN1, 1)
+            pi.write(IN2, 0)
+            pi.set_PWM_dutycycle(ENA, speed)
+        elif direction == "reverse":
+            pi.write(IN1, 0)
+            pi.write(IN2, 1)
+            pi.set_PWM_dutycycle(ENA, speed)
+        else:  # stop
+            pi.write(IN1, 0)
+            pi.write(IN2, 0)
+            pi.set_PWM_dutycycle(ENA, 0)
 
+    async def door_sequence(self):
+        """Execute door handle sequence"""
+        print("🚪 Executing door sequence...")
 
-def is_approaching(signal_strength, window_size=10, threshold=10):
-    """
-    Returns True if approaching, False if moving away, None if stable or not enough data.
-    threshold: minimum RSSI difference to consider as movement (default: 3 dBm)
-    """
-    recent_values = list(signal_strength.values())[-window_size:]
+        # Forward stroke
+        self.motor_control(255, "forward")
+        await asyncio.sleep(5)
 
-    if len(recent_values) < 2:
-        return None
+        # Brief pause
+        self.motor_control(0, "stop")
+        await asyncio.sleep(0.5)
 
-    # Compare first half vs second half of the window
-    mid = len(recent_values) // 2
-    first_half_avg = sum(recent_values[:mid]) / mid
-    second_half_avg = sum(recent_values[mid:]) / (len(recent_values) - mid)
+        # Return stroke
+        self.motor_control(255, "reverse")
+        await asyncio.sleep(6)
 
-    difference = second_half_avg - first_half_avg
+        # Stop
+        self.motor_control(0, "stop")
+        print("✅ Door sequence completed")
 
-    # If difference is too small, signal is stable
-    if abs(difference) < threshold:
-        return None
+    async def scan_for_device(self):
+        """Scan for the target Bluetooth device"""
+        try:
+            devices = await BleakScanner.discover(timeout=SCAN_INTERVAL)
+            for device in devices:
+                if device.address.lower() == self.target_address:
+                    return True
+            return False
+        except Exception as e:
+            print(f"⚠️ Scan error: {e}")
+            return False
 
-    # Higher RSSI (less negative) = closer
-    return difference > 0
+    async def monitor_connection(self):
+        """Main monitoring loop"""
+        print(f"🔍 Monitoring for device: {self.target_address}")
 
+        while self.running:
+            device_found = await self.scan_for_device()
+            current_time = datetime.now()
 
-def cleanup_signal_strength(
-    signal_strength, cleanup_interval=60.0, cleanup_size=50
-):
-    """
-    Clean up old signal strength data to prevent exponential growth.
+            if device_found:
+                if not self.was_connected:
+                    # Device reconnected after being away
+                    if self.last_seen:
+                        away_duration = current_time - self.last_seen
+                        print(
+                            f"📱 Device reconnected after {away_duration.total_seconds():.1f} seconds away"
+                        )
+                    else:
+                        print("📱 Device detected for the first time")
 
-    Args:
-        signal_strength: Dictionary containing signal strength data
-        cleanup_interval: Time in seconds to keep data (default: 60.0)
-        cleanup_size: Maximum number of entries per device (default: 50)
-    """
-    current_time = time.time()
+                    await self.door_sequence()
+                    self.was_connected = True
 
-    # Remove old entries based on time
-    for addr in list(signal_strength.keys()):
-        if isinstance(signal_strength[addr], dict):
-            signal_strength[addr] = {
-                timestamp: rssi
-                for timestamp, rssi in signal_strength[addr].items()
-                if current_time - timestamp <= cleanup_interval
-            }
+                self.last_seen = current_time
 
-            # If still too many entries, keep only the most recent ones
-            if len(signal_strength[addr]) > cleanup_size:
-                sorted_items = sorted(signal_strength[addr].items())
-                signal_strength[addr] = dict(sorted_items[-cleanup_size:])
+            else:
+                if self.was_connected and self.last_seen:
+                    # Check if device has been away long enough
+                    time_since_seen = current_time - self.last_seen
+                    if time_since_seen.total_seconds() > DISCONNECT_THRESHOLD:
+                        print(
+                            f"📵 Device disconnected (away for {time_since_seen.total_seconds():.1f}s)"
+                        )
+                        self.was_connected = False
 
-            # Remove device entry if no recent data
-            if not signal_strength[addr]:
-                del signal_strength[addr]
+            await asyncio.sleep(SCAN_INTERVAL)
 
+    def cleanup(self):
+        """Clean shutdown"""
+        print("\n🛑 Shutting down...")
+        self.running = False
+        self.motor_control(0, "stop")
+        pi.stop()
 
-def recognize_device(address, signal_strength, threshold=-30):
-    """
-    Returns True if the signal strength indicates a recognized device is nearby.
-    threshold: RSSI value to consider as recognized (default: -30 dBm)
-    """
-    recent_values = list(signal_strength[address].values())[-5:]
+async def main():
+    controller = BluetoothDoorController(PHONE_BT_ADDRESS)
 
-    if not recent_values:
-        return False
+    # Setup signal handlers for clean shutdown
+    def signal_handler(signum, frame):
+        controller.cleanup()
 
-    # If any recent value is above the threshold, consider it recognized
-    return any(rssi >= threshold for rssi in recent_values)
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
 
-
-async def continuous_scan(addresses: list[str], name: str):
-    """Continuously scan for BLE devices with real-time callbacks."""
-    ABSENCE_THRESHOLD = 10.0
-
-    last_seen = {}
-    signal_strength = {}
-    for address in addresses:
-        last_seen[address] = time.time()
-        signal_strength[address] = {time.time(): -120}  # base line
-
-    def device_callback(device, advertisement_data):
-        """Handle discovered devices in real-time."""
-        if not device.name:
-            return
-
-        if device.address in addresses:
-            # print(
-            #     f"Discovered target device: {device.name}, Address: {device.address}, RSSI: {advertisement_data.rssi} dBm"
-            # )
-            current_time = time.time()
-
-            # match is_approaching(signal_strength):
-            #     case True:
-            #         print("approaching...")
-            #     case False:
-            #         print("leaving...")
-            #     case _:
-            #         print("Not moving...")
-
-            absence_duration = current_time - last_seen[device.address]
-            if absence_duration > ABSENCE_THRESHOLD:
-                print(
-                    f"Hello again! absence duration: {absence_duration:.2f}s, current time: {time.strftime('%H:%M:%S', time.localtime(current_time))} RSSI: {advertisement_data.rssi} dBm"
-                )
-                motor_control(255, "forward")
-                time.sleep(6)
-                motor_control(255, "reverse")
-                time.sleep(7)
-
-                motor_control(0, "stop")  # Stop motor
-                pi.stop()
-
-            last_seen[device.address] = current_time
-
-    # Create stop event for graceful shutdown
-    stop_event = asyncio.Event()
-
-    # Set up signal handler for Ctrl+C
-    def signal_handler():
-        print("\nStopping scan...")
-        stop_event.set()
-
-    # Register signal handler
-    loop = asyncio.get_running_loop()
-    loop.add_signal_handler(signal.SIGINT, signal_handler)
-
-    async with BleakScanner(detection_callback=device_callback) as scanner:
-        print("Scanning for BLE devices... Press Ctrl+C to stop")
-        await stop_event.wait()
-
+    try:
+        await controller.monitor_connection()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        controller.cleanup()
 
 if __name__ == "__main__":
-    MAIN_DEVICE_ADRESS = "C0:2C:5C:8D:37:D8"
-    WATCH_DEVICE_ADRESS = "63A5FCD8-4F7D-A5DC-4461-FA7137452DCE"
-    MAIN_DEVICE_NAME = "sPhone"
-
-    addresses = [
-        MAIN_DEVICE_ADRESS,  # sPhone
-        WATCH_DEVICE_ADRESS,  # sWatch
-    ]
-    asyncio.run(continuous_scan(addresses, MAIN_DEVICE_NAME))
+    asyncio.run(main())
