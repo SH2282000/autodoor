@@ -105,17 +105,12 @@ class BluetoothDoorController:
             scan_result = await BleakScanner.discover(
                 timeout=SCAN_INTERVAL, return_adv=True
             )
-            for device in scan_result:
+            for device_address, (device, adv_data) in scan_result.items():
                 if (
-                    device.address.lower() == self.target_address
-                    and scan_result[device].rssi > -70
+                    device_address.lower() == self.target_address
+                    and adv_data.rssi > -70
                 ):
-                    rssi = (
-                        scan_result[device].rssi
-                        if device in scan_result
-                        else None
-                    )
-                    print(f"📡 Device found with RSSI: {rssi}")
+                    print(f"📡 Device found with RSSI: {adv_data.rssi}")
                     return True
             return False
         except Exception as e:
