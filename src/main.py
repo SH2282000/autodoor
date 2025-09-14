@@ -102,15 +102,20 @@ class BluetoothDoorController:
     async def scan_for_device(self):
         """Scan for the target Bluetooth device"""
         try:
-            devices, adv = await BleakScanner.discover(
+            scan_result = await BleakScanner.discover(
                 timeout=SCAN_INTERVAL, return_adv=True
             )
-            print(adv.rssi)
-            for device in devices:
+            for device in scan_result:
                 if (
                     device.address.lower() == self.target_address
-                    and adv.rssi > -50
+                    and scan_result[device].rssi > -70
                 ):
+                    rssi = (
+                        scan_result[device].rssi
+                        if device in scan_result
+                        else None
+                    )
+                    print(f"📡 Device found with RSSI: {rssi}")
                     return True
             return False
         except Exception as e:
